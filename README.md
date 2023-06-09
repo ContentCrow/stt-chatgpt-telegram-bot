@@ -1,11 +1,12 @@
-# GPT-4 Telegram Bot modified
+# STT GPT-3.5 Telegram Bot
 
-GPT-4 Telegram Bot is a simple and easy-to-use conversational AI-assistant running on GPT-4 language models. It provides the capability to interact with the bot through voice inputs by performing audio recognition on Telegram.
+SST GPT-3.5 Telegram Bot is a simple and easy-to-use conversational AI-assistant and Speech-To-Text converter running on GPT-3.5 language models. It provides the capability to interact with the bot through text inputs as well as transcribe audio messages to text.
 
 ## Features
-* Responds to user inputs in text format using [OpenAI GPT-4 Language Models](https://beta.openai.com/docs/models/gpt-4).
-* Reset mechanism for clearing the conversation history.
-* Speech-To-Text with OpenAI Whisper ASR (multi-language support).
+* Responds to user inputs in text format using [OpenAI GPT-3.5 Language Models](https://platform.openai.com/docs/models/gpt-3-5).
+* Reset mechanism for clearing the ChatGPT conversation history.
+* Multi language Speech-To-Text with [OpenAI Whisper](https://platform.openai.com/docs/models/whisper).
+* The speech transcription language and the audio speed can be configured directly via the bot.
 
 ## Requirements
 * Python 3.x installed
@@ -38,18 +39,18 @@ scoop install ffmpeg
 * `OPENAI_API_KEY`: Your OpenAI API Key, which can be found on the [OpenAI Dashboard](https://beta.openai.com/signup).
 
 ## Usage
-1. Set your environment variables (linux):
-
+1. Set your environment variables:
+   
+   For Linux:
    ```bash
    export TELEGRAM_BOT_KEY=your_telegram_token
    export OPENAI_API_KEY=your_openai_token
    ```
-   And for Windows:
+   For Windows:
    ```bash
    setx TELEGRAM_BOT_KEY “your_telegram_token”
    setx OPENAI_API_KEY “your_openai_token”
    ```
-
 
 2. Run the script:
    ```bash
@@ -57,3 +58,9 @@ scoop install ffmpeg
    ```
 
 3. Open the Telegram app and interact with the bot using text messages or voice inputs.
+   ```bash
+   /reset # Reset the ChatGPT context history
+   /language en # Set the speech language used for the transcription
+   /speed 1.2 #Set the audio speed used for transcription (0.8x-1.8x)
+   /info #Display important info (usage cost, language, speed)
+   ```

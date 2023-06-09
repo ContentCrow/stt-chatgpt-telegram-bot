@@ -93,11 +93,10 @@ async def get_audio_transcription(update, context):
             transcript = openai.Audio.transcribe(
                 file = f,
                 model = "whisper-1",
-                response_format="text", # verbose_json, srt, vtt, text
+                response_format="text",
                 language=settings.language
             )
     os.remove(file_name)
-    #print(transcript)
     return transcript["text"]
 
 
@@ -154,11 +153,6 @@ if __name__ == "__main__":
         filters.TEXT & (~filters.COMMAND), process_text_message
     )
     application.add_handler(text_handler)
-    
-    # reset - Reset the ChatGPT context history
-    # language - Set the speech language used for the transcription
-    # speed - Set the audio speed used for transcription (0.8x-1.8x)
-    # info - Display important info (cost, language, speed)
 
     application.add_handler(CommandHandler("reset", reset_history))
     application.add_handler(CommandHandler("language", set_language))
