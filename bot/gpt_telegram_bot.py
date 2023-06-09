@@ -11,13 +11,17 @@ from telegram.ext import (
     MessageHandler,
     filters,
     CommandHandler,
+    TypeHandler,
+    ApplicationHandlerStop
 )
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
+MAX_COUNT = 5
 telegram_token = os.environ["TELEGRAM_BOT_KEY"]
+telegram_bot_password = os.environ["TELEGRAM_BOT_PW"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
 messages_list = []
@@ -25,6 +29,8 @@ messages_list = []
 settings = usersettings.Settings("contentcrow.sttchatgpttelegrambot")
 settings.add_setting("language", str, default="auto")
 settings.add_setting("speed", float, default=1.0)
+settings.add_setting("whitelisted_ids", list, [])
+settings.add_setting("blacklisted_ids", list, [])
 settings.load_settings()
 
 def append_history(content, role):
@@ -163,8 +169,58 @@ async def show_info(update, context):
     logging.info(f"User displayed infos: language={settings.language}, speed={settings.speed}x, usage_cost={cost}$")
 
 
+async def chat_guard(update, context):
+    count = context.user_data.get("usageCount", 0)
+    if hasattr(update, "message") and hasattr(update.message, "from_user"):
+        user_id = update.message.from_user.id
+        user_firstname = update.message.from_user.first_name
+        text = update.message.text
+    else:
+        user_id = update.edited_message.from_user.id
+        user_firstname = update.edited_message.from_user.first_name
+        text = update.edited_message.text
+    #print(user_id, text, '/password ' in text, count)
+    
+    if user_id in settings.blacklisted_ids:
+        raise ApplicationHandlerStop
+    elif user_id in settings.whitelisted_ids:
+        pass
+    elif count < MAX_COUNT and "/password " in text and get_command_argument("/password ", text) == telegram_bot_password:
+        settings.whitelisted_ids.append(user_id)
+        settings.save_settings()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=f"Welcome {user_firstname}! Your user_id {user_id} has been whitelisted."
+        )
+        await context.bot.deleteMessage(
+            message_id=update.message.message_id, chat_id=update.message.chat_id
+        )
+        logging.info(f"Chat-Guard: User with user_id {user_id} was successfully whitelisted!")
+    elif count < MAX_COUNT:
+        context.user_data["usageCount"] = count + 1
+        attempt = MAX_COUNT - count
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=f"This is a private bot. Please enter the correct password! You have {attempt} attempt{'s' if attempt > 1 else ''} left."
+        )
+        raise ApplicationHandlerStop
+    elif count == MAX_COUNT:
+        context.user_data["usageCount"] = count + 1
+        settings.blacklisted_ids.append(user_id)
+        settings.save_settings()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=f"🛑 You have been permanently blocked by this bot. 🛑"
+        )
+        logging.info(f"Chat-Guard: User with user_id {user_id} was blacklisted!")
+        raise ApplicationHandlerStop
+    else:
+        raise ApplicationHandlerStop
+
+
 if __name__ == "__main__":
     application = ApplicationBuilder().token(telegram_token).build()
+
+    type_handler = TypeHandler(Update, chat_guard)
+    application.add_handler(type_handler, -1)
+
     text_handler = MessageHandler(
         filters.TEXT & (~filters.COMMAND), process_text_message
     )
