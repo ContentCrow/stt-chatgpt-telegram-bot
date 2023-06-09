@@ -5,4 +5,5 @@ langcodes==3.3.0
 language_data==1.1
 ffmpeg-python==0.2.0
 usersettings==1.1.5
+python-dateutil==2.8.2
 
