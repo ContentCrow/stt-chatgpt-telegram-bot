@@ -30,13 +30,15 @@ def convert_and_speedup_audio(audio_file: str, speed: float) -> str:
         ffmpeg
         .input(audio_file + ".oga")
         .filter("atempo", speed)
-        .output(audio_file + ".wav")
+        .output(audio_file + ".mp3")
+        .global_args("-c:a", "libmp3lame")
+        .global_args("-q:a", "0")
         .global_args("-loglevel", "error")
         .global_args("-nostats")
         .run()
     )
     os.remove(audio_file + ".oga")
-    return audio_file + ".wav";
+    return audio_file + ".mp3";
 
 def get_command_argument(command: str, text: str) -> str:
     if len(text) > (len(command) + 1):
