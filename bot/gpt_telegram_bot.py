@@ -13,43 +13,44 @@ from telegram.ext import (
     filters,
     CommandHandler,
     TypeHandler,
-    ApplicationHandlerStop
+    ApplicationHandlerStop,
 )
 from telegram.error import TelegramError
 from helpers import download_media, convert_and_speedup_audio, validate_entered_language, validate_entered_speed, get_command_argument, get_first_last_day_of_this_month, get_final_file_size
 
-# Init logger: Save log to file with level DEBUG and print out log to console with level INFO
-logger = logging.getLogger("SST-CHATGPT-TELEGRAM-BOT")
+# enable/disable full traceback logging for the logfile
+LOG_TRACEBACK = False
+# Init logger: Save log to file with level DEBUG and print out log to console with level CRITICAL (reason: suppress annoying _updater.py ERROR messages)
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.CRITICAL) # handler with log level for console
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s", 
     datefmt="%a, %d %b %Y %H:%M:%S",
-    level=logging.DEBUG,
+    level=logging.ERROR, # log level for log file
     handlers= [
         logging.FileHandler("sttchatgpttelegrambot.log"),
         handler
     ]
 )
+logger = logging.getLogger("SST-CHATGPT-TELEGRAM-BOT")
+
 # Limit the log level of imported modules to ERROR
 for log_name, log_obj in logging.Logger.manager.loggerDict.items():
-     if log_name != 'SST-CHATGPT-TELEGRAM-BOT' and isinstance(log_obj, logging.Logger):
+    #logger.critical(log_obj)
+    if log_name != 'SST-CHATGPT-TELEGRAM-BOT' and isinstance(log_obj, logging.Logger):
         log_obj.setLevel(logging.ERROR)
-
-# set the full traceback logging for the logfile
-LOG_TRACEBACK = False
 
 WHISPER_API_FILE_SIZE_LIMIT = 25
 MAX_COUNT = 5
+
 telegram_token = os.environ["TELEGRAM_BOT_KEY"]
 telegram_bot_password = os.environ["TELEGRAM_BOT_PW"]
 openai.api_key = os.environ["OPENAI_API_KEY"]
 
 messages_list = []
-
 _user_id = None
 
-# Init the local settings
+# Init the local settings file
 settings = usersettings.Settings("contentcrow.sttchatgpttelegrambot")
 settings.add_setting("language", str, default="auto")
 settings.add_setting("speed", float, default=1.0)
@@ -92,7 +93,7 @@ async def process_text_message(update: Update, context: ContextTypes.DEFAULT_TYP
         message_id=thinking.message_id, chat_id=update.message.chat_id
     )
     await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
-    logger.info(f"User: {_user_id}. Proccessed text message with ChatGPT.")
+    logger.critical(f"User: {_user_id}. Proccessed text message with ChatGPT.")
 
 
 async def process_audio_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,7 +104,7 @@ async def process_audio_message(update: Update, context: ContextTypes.DEFAULT_TY
 
     append_history(response, "assistant")
     await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
-    logger.info(f"User: {_user_id}. Proccessed audio message with ChatGPT.")
+    logger.critical(f"User: {_user_id}. Proccessed audio message with ChatGPT.")
 
 
 async def process_audio_message_no_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -125,7 +126,7 @@ async def process_audio_message_no_gpt(update: Update, context: ContextTypes.DEF
         logger_message = f"User: {_user_id}. Transcription for '{transcript_arr[1]}' via Whisper API finished."
 
     await context.bot.send_message(chat_id=update.effective_chat.id, text=chat_message)
-    logger.info(logger_message)
+    logger.critical(logger_message)
 
 
 def generate_gpt_response() -> str:
@@ -167,7 +168,7 @@ async def reset_history(update: object, context: ContextTypes.DEFAULT_TYPE) -> [
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="Messages history cleared."
     )
-    logger.info(f"User ({_user_id}) cleared the message history.")
+    logger.critical(f"User ({_user_id}) cleared the message history.")
     return messages_list
 
 
@@ -185,7 +186,7 @@ async def set_language(update: object, context: ContextTypes.DEFAULT_TYPE) -> No
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text=f"Speech language set to '{settings.language}'."
     )
-    logger.info(f"User ({_user_id}) set speech language to '{settings.language}'.")
+    logger.critical(f"User ({_user_id}) set speech language to '{settings.language}'.")
 
 
 async def set_speed(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -202,7 +203,7 @@ async def set_speed(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text=f"Audio speed set to '{settings.speed}x'."
     )
-    logger.info(f"User ({_user_id}) set audio speed to '{settings.speed}x'.")
+    logger.critical(f"User ({_user_id}) set audio speed to '{settings.speed}x'.")
 
 
 async def show_info(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -210,7 +211,7 @@ async def show_info(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text=f"Total usage cost this month: {cost}$\nSpeech language: {settings.language}\nAudio speed: {settings.speed}x"
     )
-    logger.info(f"User ({_user_id}) displayed infos: language={settings.language}, speed={settings.speed}x, usage_cost={cost}$")
+    logger.critical(f"User ({_user_id}) displayed infos: language={settings.language}, speed={settings.speed}x, usage_cost={cost}$")
 
 
 async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -241,7 +242,7 @@ async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None
         await context.bot.deleteMessage(
             message_id=update.message.message_id, chat_id=update.message.chat_id
         )
-        logger.info(f"Chat-Guard: User ({user_id}) was successfully whitelisted!")
+        logger.critical(f"Chat-Guard: User ({user_id}) was successfully whitelisted!")
     elif count < MAX_COUNT:
         context.user_data["usageCount"] = count + 1
         attempt = MAX_COUNT - count
@@ -256,7 +257,7 @@ async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text=f"🛑 You have been permanently blocked by this bot. 🛑"
         )
-        logger.info(f"Chat-Guard: User ({user_id}) was blacklisted!")
+        logger.critical(f"Chat-Guard: User ({user_id}) was blacklisted!")
         raise ApplicationHandlerStop
     else:
         raise ApplicationHandlerStop
@@ -267,23 +268,25 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         raise context.error
     except httpx.HTTPError as e:
         # Handle httpx-specific errors
-        logging.error(f"HTTPx Error: {str(e)}")
+        logger.critical(f"HTTPx Error: {str(e)}")
         log_traceback()
     except TelegramError as e:
         # Handle generic Telegram errors
-        # write httpx.LocalProtocolError to logfile
-        if str(e) == "httpx.LocalProtocolError: ":
-            logger.debug(f"Telegram Error: {str(e)}")
+        # do not log these errors, as the _updater.py will log them anyways
+        if (str(e) == "httpx.LocalProtocolError: " or str(e) == "httpx.RemoteProtocolError: " or str(e) == "httpx.WriteError: " or str(e) == "httpx.ReadError: "):
+            pass
         else:
-            logger.error(f"Telegram Error: {str(e)}")
-            log_traceback()
+            logger.critical(f"Telegram Error: {str(e)}")
+        log_traceback()
     except Exception as e:
         # Handle other unexpected errors
-        logging.error(f"Unexpected Error: {str(e)}")
+        logger.error(f"Unexpected Error: {str(e)}")
         log_traceback()
 
 if __name__ == "__main__":
     application = ApplicationBuilder().token(telegram_token).build()
+
+    application.add_error_handler(error_handler)
 
     type_handler = TypeHandler(Update, chat_guard)
     application.add_handler(type_handler, -1)
@@ -300,7 +303,5 @@ if __name__ == "__main__":
 
     audio_handler = MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO, process_audio_message_no_gpt)
     application.add_handler(audio_handler)
-
-    application.add_error_handler(error_handler)
 
     application.run_polling()
