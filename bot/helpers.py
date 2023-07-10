@@ -1,5 +1,6 @@
 import os
 import ffmpeg
+import math
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from langcodes import *
@@ -10,35 +11,49 @@ from telegram.ext import (
 
 supported_languages = ["af", "ar", "hy", "az", "be", "bs", "bg", "ca", "zh", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "gl", "de", "el", "he", "hi", "hu", "is", "id", "it", "ja", "kn", "kk", "ko", "lv", "lt", "mk", "ms", "mr", "mi", "ne", "no", "fa", "pl", "pt", "ro", "ru", "sr", "sk", "sl", "es", "sw", "sv", "tl", "ta", "th", "tr", "uk", "ur", "vi", "cy"]
 
-async def download_audio(update: object, context: ContextTypes.DEFAULT_TYPE) -> object:
-    file_id = update.message.voice.file_id
+async def download_media(update: object, context: ContextTypes.DEFAULT_TYPE) -> []:
+    if hasattr(update.message, "voice") and update.message.voice != None:
+        file_id = update.message.voice.file_id
+        file_extension = get_file_extension(update.message.voice.mime_type)
+        file_name = "voice message"
+    elif hasattr(update.message, "audio") and update.message.audio != None:
+        file_id = update.message.audio.file_id
+        file_extension = get_file_extension(update.message.audio.mime_type)
+        file_name = update.message.audio.file_name
+    elif hasattr(update.message, "video") and update.message.video != None:
+        file_id = update.message.video.file_id
+        file_extension = get_file_extension(update.message.video.mime_type)
+        file_name = update.message.video.file_name
+    else:
+        return None
     new_file = await context.bot.get_file(file_id)
-    await new_file.download_to_drive(file_id + ".oga")
-    return file_id
+    f = await new_file.download_to_drive(file_id + file_extension)
+    return [f, file_name]
 
-def convert_audio_to_wav(audio_file: str) -> object:
-    with open(audio_file + ".oga", "rb") as f:
-        voice = AudioSegment.from_ogg(f)
-    voice_wav = voice.export(audio_file + ".wav", format="wav")
-    voice_wav.close()
-    os.remove(audio_file + ".wav")
-    os.remove(audio_file + ".oga")
-    return voice_wav
-
-def convert_and_speedup_audio(audio_file: str, speed: float) -> str:
+def convert_and_speedup_audio(audio_file: object, speed: float) -> object:
+    file_split = audio_file.name.split('.')
+    file_name = file_split[0]
+    #file_extension = file_split[1]
     (
         ffmpeg
-        .input(audio_file + ".oga")
+        .input(audio_file.name)
         .filter("atempo", speed)
-        .output(audio_file + ".mp3")
+        .output(file_name + ".mp3")
         .global_args("-c:a", "libmp3lame")
         .global_args("-q:a", "0")
         .global_args("-loglevel", "error")
         .global_args("-nostats")
         .run()
     )
-    os.remove(audio_file + ".oga")
-    return audio_file + ".mp3";
+    os.remove(audio_file)
+    return file_name + ".mp3";
+
+def get_file_extension(mime_type: str) -> str:
+    return "." + mime_type.split('/')[1]
+
+def get_final_file_size(f: object) -> int:
+    file_size_bytes = os.fstat(f.fileno()).st_size
+    return math.ceil(file_size_bytes / (1024 * 1024))
 
 def get_command_argument(command: str, text: str) -> str:
     if len(text) > (len(command) + 1):

@@ -16,7 +16,7 @@ from telegram.ext import (
     ApplicationHandlerStop
 )
 from telegram.error import TelegramError
-from helpers import download_audio, convert_audio_to_wav, convert_and_speedup_audio, validate_entered_language, validate_entered_speed, get_command_argument, get_first_last_day_of_this_month
+from helpers import download_media, convert_and_speedup_audio, validate_entered_language, validate_entered_speed, get_command_argument, get_first_last_day_of_this_month, get_final_file_size
 
 # Init logger: Save log to file with level DEBUG and print out log to console with level INFO
 logger = logging.getLogger("SST-CHATGPT-TELEGRAM-BOT")
@@ -36,6 +36,10 @@ for log_name, log_obj in logging.Logger.manager.loggerDict.items():
      if log_name != 'SST-CHATGPT-TELEGRAM-BOT' and isinstance(log_obj, logging.Logger):
         log_obj.setLevel(logging.ERROR)
 
+# set the full traceback logging for the logfile
+LOG_TRACEBACK = False
+
+WHISPER_API_FILE_SIZE_LIMIT = 25
 MAX_COUNT = 5
 telegram_token = os.environ["TELEGRAM_BOT_KEY"]
 telegram_bot_password = os.environ["TELEGRAM_BOT_PW"]
@@ -70,6 +74,10 @@ def get_openai_usage_cost() -> float:
     resp_object = resp[0]
     return resp_object.data["total_usage"]
 
+def log_traceback() -> None:
+    if LOG_TRACEBACK:
+        traceback_str = traceback.format_exc()
+        logger.debug(traceback_str)
 
 async def process_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     thinking = await context.bot.send_message(
@@ -103,13 +111,21 @@ async def process_audio_message_no_gpt(update: Update, context: ContextTypes.DEF
         chat_id=update.effective_chat.id, text="🤔💬"
     )
 
-    transcript = await get_audio_transcription(update, context)
+    transcript_arr = await get_audio_transcription(update, context)
 
     await context.bot.deleteMessage(
         message_id=thinking.message_id, chat_id=update.message.chat_id
     )
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=transcript)
-    logger.info(f"User: {_user_id}. Transcription with Whisper finished.")
+    # aborted or not
+    if transcript_arr[2]:
+        chat_message = f"Transcription aborted! The converted audio file size ({transcript_arr[0]}MB) exceeds the Whisper API size limit of {WHISPER_API_FILE_SIZE_LIMIT}MB. Please split your input file accordingly."
+        logger_message = f"User: {_user_id}. Transcription for '{transcript_arr[1]}' via Whisper API aborted. The converted file size ({transcript_arr[0]}MB) exceeds {WHISPER_API_FILE_SIZE_LIMIT}MB."
+    else:
+        chat_message = transcript_arr[0]
+        logger_message = f"User: {_user_id}. Transcription for '{transcript_arr[1]}' via Whisper API finished."
+
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=chat_message)
+    logger.info(logger_message)
 
 
 def generate_gpt_response() -> str:
@@ -117,25 +133,33 @@ def generate_gpt_response() -> str:
     return completion.choices[0].message["content"]
 
 
-async def get_audio_transcription(update: object, context: ContextTypes.DEFAULT_TYPE) -> str:
-    new_file = await download_audio(update, context)
-    file_name = convert_and_speedup_audio(new_file, settings.speed)
-    with open(file_name, "rb") as f:
-        if settings.language == "auto":
-            transcript = openai.Audio.transcribe(
-                file = f,
-                model = "whisper-1",
-                #response_format="text", # verbose_json, srt, vtt, text
-            )
+async def get_audio_transcription(update: object, context: ContextTypes.DEFAULT_TYPE) -> []:
+    file_arr = await download_media(update, context)
+    downloaded_file = file_arr[0]
+    converted_file_name = convert_and_speedup_audio(downloaded_file, settings.speed)
+    has_error = False
+    with open(converted_file_name, "rb") as f:
+        file_size = get_final_file_size(f)
+        if file_size > WHISPER_API_FILE_SIZE_LIMIT:
+            has_error = True
+            transcript = file_size
         else:
-            transcript = openai.Audio.transcribe(
-                file = f,
-                model = "whisper-1",
-                #response_format="text",
-                language=settings.language
-            )
-    os.remove(file_name)
-    return transcript["text"]
+            if settings.language == "auto":
+                transcript_obj = openai.Audio.transcribe(
+                    file = f,
+                    model = "whisper-1",
+                    #response_format="text", # verbose_json, srt, vtt, text
+                )
+            else:
+                transcript_obj = openai.Audio.transcribe(
+                    file = f,
+                    model = "whisper-1",
+                    #response_format="text",
+                    language=settings.language
+                )
+            transcript = transcript_obj["text"]
+    os.remove(converted_file_name)
+    return [transcript, file_arr[1], has_error]
 
 
 async def reset_history(update: object, context: ContextTypes.DEFAULT_TYPE) -> []:
@@ -244,18 +268,19 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     except httpx.HTTPError as e:
         # Handle httpx-specific errors
         logging.error(f"HTTPx Error: {str(e)}")
-        traceback_str = traceback.format_exc()
-        logging.debug(traceback_str)
+        log_traceback()
     except TelegramError as e:
         # Handle generic Telegram errors
-        logging.error(f"Telegram Error: {str(e)}")
-        traceback_str = traceback.format_exc()
-        logging.debug(traceback_str)
+        # write httpx.LocalProtocolError to logfile
+        if str(e) == "httpx.LocalProtocolError: ":
+            logger.debug(f"Telegram Error: {str(e)}")
+        else:
+            logger.error(f"Telegram Error: {str(e)}")
+            log_traceback()
     except Exception as e:
         # Handle other unexpected errors
         logging.error(f"Unexpected Error: {str(e)}")
-        traceback_str = traceback.format_exc()
-        logging.debug(traceback_str)
+        log_traceback()
 
 if __name__ == "__main__":
     application = ApplicationBuilder().token(telegram_token).build()
@@ -273,7 +298,7 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("speed", set_speed))
     application.add_handler(CommandHandler("info", show_info))
 
-    audio_handler = MessageHandler(filters.VOICE, process_audio_message_no_gpt)
+    audio_handler = MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO, process_audio_message_no_gpt)
     application.add_handler(audio_handler)
 
     application.add_error_handler(error_handler)
