@@ -78,7 +78,7 @@ def get_openai_usage_cost() -> float:
 def log_traceback() -> None:
     if LOG_TRACEBACK:
         traceback_str = traceback.format_exc()
-        logger.debug(traceback_str)
+        logger.error(traceback_str)
 
 async def process_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     thinking = await context.bot.send_message(
@@ -249,6 +249,7 @@ async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text=f"This is a private bot. Please enter the correct password! You have {attempt} attempt{'s' if attempt > 1 else ''} left."
         )
+        logger.critical(f"Chat-Guard: User ({user_id}) tried to access the bot without being whitelisted.")
         raise ApplicationHandlerStop
     elif count == MAX_COUNT:
         context.user_data["usageCount"] = count + 1
@@ -271,12 +272,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.critical(f"HTTPx Error: {str(e)}")
         log_traceback()
     except TelegramError as e:
+        e_string = str(e)
         # Handle generic Telegram errors
         # do not log these errors, as the _updater.py will log them anyways
-        if (str(e) == "httpx.LocalProtocolError: " or str(e) == "httpx.RemoteProtocolError: " or str(e) == "httpx.WriteError: " or str(e) == "httpx.ReadError: "):
+        if ("httpx.LocalProtocolError" in e_string or "httpx.RemoteProtocolError" in e_string or "httpx.WriteError" in e_string or "httpx.ReadError" in e_string):
             pass
         else:
-            logger.critical(f"Telegram Error: {str(e)}")
+            logger.critical(f"Telegram Error: {e_string}")
         log_traceback()
     except Exception as e:
         # Handle other unexpected errors
@@ -285,8 +287,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 if __name__ == "__main__":
     application = ApplicationBuilder().token(telegram_token).build()
-
-    application.add_error_handler(error_handler)
 
     type_handler = TypeHandler(Update, chat_guard)
     application.add_handler(type_handler, -1)
@@ -304,4 +304,7 @@ if __name__ == "__main__":
     audio_handler = MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO, process_audio_message_no_gpt)
     application.add_handler(audio_handler)
 
+    application.add_error_handler(error_handler)
+
+    logger.critical("The bot has been (re)started.")
     application.run_polling()
