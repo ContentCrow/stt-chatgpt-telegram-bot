@@ -275,7 +275,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         e_string = str(e)
         # Handle generic Telegram errors
         # do not log these errors, as the _updater.py will log them anyways
-        if ("httpx.LocalProtocolError" in e_string or "httpx.RemoteProtocolError" in e_string or "httpx.WriteError" in e_string or "httpx.ReadError" in e_string):
+        if ("httpx.LocalProtocolError" in e_string or "httpx.RemoteProtocolError" in e_string or "httpx.WriteError" in e_string or "httpx.ReadError" in e_string or "httpx.ConnectError" in e_string):
             pass
         else:
             logger.critical(f"Telegram Error: {e_string}")
