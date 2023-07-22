@@ -312,7 +312,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         raise context.error
     except httpx.HTTPError as e:
         # Handle httpx-specific errors
-        logger.critical(f"HTTPx Error: {str(e)}")
+        logger.critical(f"HTTPx Error for user ({_user_id}): {str(e)}")
         log_traceback()
     except TelegramError as e:
         e_string = str(e)
@@ -321,12 +321,18 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         if ("httpx.LocalProtocolError" in e_string or "httpx.RemoteProtocolError" in e_string or "httpx.WriteError" in e_string or "httpx.ReadError" in e_string or "httpx.ConnectError" in e_string):
             pass
         else:
-            logger.critical(f"Telegram Error: {e_string}")
+            logger.critical(f"Telegram Error for user ({_user_id}): {e_string}")
         log_traceback()
     except Exception as e:
+        e_string = str(e)
         # Handle other unexpected errors
-        logger.error(f"Unexpected Error: {str(e)}")
+        logger.critical(f"Unexpected Error for user ({_user_id}): {e_string}")
         log_traceback()
+        if "quota" in e_string: # quota error
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id, text=f"Error: {e_string}"
+            )
+
 
 if __name__ == "__main__":
     application = ApplicationBuilder().token(telegram_token).build()
