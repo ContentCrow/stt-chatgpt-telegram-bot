@@ -9,6 +9,15 @@ SST GPT-3.5 Telegram Bot is a simple and easy-to-use conversational AI-assistant
 * The speech transcription language and the audio speed can be configured directly via the bot.
 * Access restriction with environment password and black-/whitelisting of user_ids.
 
+## Docker (Windows)
+To run this bot directly with docker, simple run the following commands: (The TELEGRAM_BOT_WL_ID environment variable is optional.)
+```
+docker build -t contentcrow/stt-chatgpt-telegram-bot https://github.com/ContentCrow/stt-chatgpt-telegram-bot.git
+
+docker run --name your_bot_name --restart unless-stopped -e TELEGRAM_BOT_KEY=your_telegram_token -e OPENAI_API_KEY=your_openai_token -e TELEGRAM_BOT_PW=your_bot_pw -e TELEGRAM_BOT_WL_ID=telegram_user_id contentcrow/stt-chatgpt-telegram-bot
+
+```
+
 ## Requirements
 * Python 3.x installed
 * Install necessary Python packages using the requirements.txt file.
@@ -36,9 +45,10 @@ scoop install ffmpeg
 ```
 
 ## Environment Variables
-* `TELEGRAM_BOT_KEY`: Your Telegram Bot Token which can be obtained from [BotFather](https://core.telegram.org/bots#6-botfather).
-* `OPENAI_API_KEY`: Your OpenAI API Key, which can be found on the [OpenAI Dashboard](https://beta.openai.com/signup).
-* `TELEGRAM_BOT_PW`: An access password of your choice for the Telegram Bot.
+* `TELEGRAM_BOT_KEY`: Your Telegram Bot Token which can be obtained from [BotFather](https://core.telegram.org/bots#6-botfather). (mandatory)
+* `OPENAI_API_KEY`: Your OpenAI API Key, which can be found on the [OpenAI Dashboard](https://beta.openai.com/signup). (mandatory)
+* `TELEGRAM_BOT_PW`: An access password of your choice for the Telegram Bot. (mandatory)
+* `TELEGRAM_BOT_WL_ID`: Your Telegram User ID which will be whitelisted by default. (optional)
 
 ## Usage
 1. Set your environment variables:
@@ -48,12 +58,14 @@ scoop install ffmpeg
    export TELEGRAM_BOT_KEY=your_telegram_token
    export OPENAI_API_KEY=your_openai_token
    export TELEGRAM_BOT_PW=your_bot_pw
+   export TELEGRAM_BOT_WL_ID=your_telegam_user_id
    ```
    For Windows:
    ```bash
    setx TELEGRAM_BOT_KEY “your_telegram_token”
    setx OPENAI_API_KEY “your_openai_token”
    setx TELEGRAM_BOT_PW “your_bot_pw”
+   setx TELEGRAM_BOT_WL_ID “telegam_user_id”
    ```
 
 2. Run the script:

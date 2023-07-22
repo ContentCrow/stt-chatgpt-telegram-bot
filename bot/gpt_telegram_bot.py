@@ -16,13 +16,13 @@ from telegram.ext import (
     ApplicationHandlerStop,
 )
 from telegram.error import TelegramError
-from helpers import download_media, convert_and_speedup_audio, validate_entered_language, validate_entered_speed, get_command_argument, get_first_last_day_of_this_month, get_final_file_size
+from helpers import download_media, convert_and_speedup_audio, validate_entered_language, validate_entered_speed, get_command_argument, get_first_last_day_of_this_month, get_final_file_size, calculateCostbyTokens, calculateCostByDuration, ModelType, get_current_month, get_time_difference_in_months, validate_entered_cost
 
 # enable/disable full traceback logging for the logfile
 LOG_TRACEBACK = False
 # Init logger: Save log to file with level DEBUG and print out log to console with level CRITICAL (reason: suppress annoying _updater.py ERROR messages)
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.CRITICAL) # handler with log level for console
+handler.setLevel(logging.CRITICAL) # handler with log level for console: change to DEBUG when debugging, otherwise CRITICAL
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s", 
     datefmt="%a, %d %b %Y %H:%M:%S",
@@ -41,7 +41,7 @@ for log_name, log_obj in logging.Logger.manager.loggerDict.items():
         log_obj.setLevel(logging.ERROR)
 
 WHISPER_API_FILE_SIZE_LIMIT = 25
-MAX_COUNT = 5
+MAX_PW_ENTER_ATTEMPTS = 5
 
 telegram_token = os.environ["TELEGRAM_BOT_KEY"]
 telegram_bot_password = os.environ["TELEGRAM_BOT_PW"]
@@ -54,26 +54,46 @@ _user_id = None
 settings = usersettings.Settings("contentcrow.sttchatgpttelegrambot")
 settings.add_setting("language", str, default="auto")
 settings.add_setting("speed", float, default=1.0)
-settings.add_setting("whitelisted_ids", list, [])
-settings.add_setting("blacklisted_ids", list, [])
+settings.add_setting("whitelisted_ids", list, default=[])
+settings.add_setting("blacklisted_ids", list, default=[])
+settings.add_setting("usage_cost", list, default=[0.0])
+settings.add_setting("index_zero_date", default=get_current_month())
 settings.load_settings()
+if ("TELEGRAM_BOT_WL_ID" in os.environ) and not (os.environ["TELEGRAM_BOT_WL_ID"] in settings.whitelisted_ids):
+    settings.whitelisted_ids.append(int(os.environ["TELEGRAM_BOT_WL_ID"]))
+    settings.save_settings()
+
 
 def append_history(content, role) -> []:
     messages_list.append({"role": role, "content": content})
     return messages_list
 
-
 def clear_history() -> []:
     messages_list.clear()
     return messages_list
 
-
+# deprecated since july 2023
 def get_openai_usage_cost() -> float:
     dates = get_first_last_day_of_this_month()
     r = openai.api_requestor.APIRequestor()
     resp = r.request("GET", f"/dashboard/billing/usage?end_date={dates['last_day']}&start_date={dates['first_day']}")
     resp_object = resp[0]
     return resp_object.data["total_usage"]
+
+def get_usage_cost_index_for_this_month() -> int:
+    date = get_current_month()
+    difference = get_time_difference_in_months(settings.index_zero_date, date)
+    if (len(settings.usage_cost) - 1) < difference: # missing indices for months in between index_zero_month and now
+        for i in range(difference):
+            settings.usage_cost.append(0.0)
+        settings.save_settings()
+    return difference
+
+def add_to_usage_cost(cost: float) -> float:
+    index = get_usage_cost_index_for_this_month()
+    settings.usage_cost[index] = settings.usage_cost[index] + cost
+    settings.save_settings()
+    return settings.usage_cost[index]
 
 def log_traceback() -> None:
     if LOG_TRACEBACK:
@@ -126,11 +146,13 @@ async def process_audio_message_no_gpt(update: Update, context: ContextTypes.DEF
         logger_message = f"User: {_user_id}. Transcription for '{transcript_arr[1]}' via Whisper API finished."
 
     await context.bot.send_message(chat_id=update.effective_chat.id, text=chat_message)
-    logger.critical(logger_message)
 
 
 def generate_gpt_response() -> str:
-    completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages_list)
+    completion = openai.ChatCompletion.create(model=ModelType.GPT35.value, messages=messages_list)
+    usage = completion["usage"]
+    calculated_cost = calculateCostbyTokens(usage, ModelType.GPT35.value)
+    total_usage_cost = add_to_usage_cost(calculated_cost)
     return completion.choices[0].message["content"]
 
 
@@ -148,16 +170,20 @@ async def get_audio_transcription(update: object, context: ContextTypes.DEFAULT_
             if settings.language == "auto":
                 transcript_obj = openai.Audio.transcribe(
                     file = f,
-                    model = "whisper-1",
+                    model = ModelType.WHISPER.value,
+                    response_format="verbose_json"
                     #response_format="text", # verbose_json, srt, vtt, text
                 )
             else:
                 transcript_obj = openai.Audio.transcribe(
                     file = f,
-                    model = "whisper-1",
-                    #response_format="text",
+                    model = ModelType.WHISPER.value,
+                    response_format="verbose_json",
                     language=settings.language
                 )
+            duration = transcript_obj["duration"]
+            calculated_cost = calculateCostByDuration(duration)
+            total_usage_cost = add_to_usage_cost(calculated_cost)
             transcript = transcript_obj["text"]
     os.remove(converted_file_name)
     return [transcript, file_arr[1], has_error]
@@ -195,7 +221,7 @@ async def set_speed(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     elif hasattr(update, "edited_message"):
         entered_speed = get_command_argument("/speed ", update.edited_message.text)
     else:
-        entered_speed = 1.0
+        entered_speed = "1.0"
 
     settings.speed = validate_entered_speed(entered_speed)
     settings.save_settings()
@@ -207,12 +233,29 @@ async def set_speed(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def show_info(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    cost = round(get_openai_usage_cost() / 100.0, 2)
+    # deprecated: cost = round(get_openai_usage_cost() / 100.0, 2)
+    cost = settings.usage_cost[get_usage_cost_index_for_this_month()]
     await context.bot.send_message(
-        chat_id=update.effective_chat.id, text=f"Total usage cost this month: {cost}$\nSpeech language: {settings.language}\nAudio speed: {settings.speed}x"
+        chat_id=update.effective_chat.id, text=f"Total usage cost this month: {cost:.2f}$\nSpeech language: {settings.language}\nAudio speed: {settings.speed}x"
     )
     logger.critical(f"User ({_user_id}) displayed infos: language={settings.language}, speed={settings.speed}x, usage_cost={cost}$")
 
+async def add_cost(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if hasattr(update, "message") and hasattr(update.message, "text"):
+        entered_cost = get_command_argument("/add_cost ", update.message.text)
+    elif hasattr(update, "edited_message"):
+        entered_cost = get_command_argument("/add_cost ", update.edited_message.text)
+    else:
+        entered_cost = "0.0"
+
+    entered_cost = validate_entered_cost(entered_cost)
+    if entered_cost > 0.0:
+        total_usage_cost = add_to_usage_cost(entered_cost)
+
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text=f"Added {entered_cost:.2f}$ usage cost. Total usage cost this month is now: {total_usage_cost:.2f}$"
+        )
+        logger.critical(f"User ({_user_id}) added usage cost of {entered_cost}$. Total usage cost for this month is now: {total_usage_cost}$")
 
 async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     count = context.user_data.get("usageCount", 0)
@@ -233,7 +276,7 @@ async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None
         raise ApplicationHandlerStop
     elif user_id in settings.whitelisted_ids:
         pass
-    elif count < MAX_COUNT and "/password " in text and get_command_argument("/password ", text) == telegram_bot_password:
+    elif count < MAX_PW_ENTER_ATTEMPTS and "/password " in text and get_command_argument("/password ", text) == telegram_bot_password:
         settings.whitelisted_ids.append(user_id)
         settings.save_settings()
         await context.bot.send_message(
@@ -243,15 +286,15 @@ async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None
             message_id=update.message.message_id, chat_id=update.message.chat_id
         )
         logger.critical(f"Chat-Guard: User ({user_id}) was successfully whitelisted!")
-    elif count < MAX_COUNT:
+    elif count < MAX_PW_ENTER_ATTEMPTS:
         context.user_data["usageCount"] = count + 1
-        attempt = MAX_COUNT - count
+        attempt = MAX_PW_ENTER_ATTEMPTS - count
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text=f"This is a private bot. Please enter the correct password! You have {attempt} attempt{'s' if attempt > 1 else ''} left."
         )
         logger.critical(f"Chat-Guard: User ({user_id}) tried to access the bot without being whitelisted.")
         raise ApplicationHandlerStop
-    elif count == MAX_COUNT:
+    elif count == MAX_PW_ENTER_ATTEMPTS:
         context.user_data["usageCount"] = count + 1
         settings.blacklisted_ids.append(user_id)
         settings.save_settings()
@@ -300,6 +343,7 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler("language", set_language))
     application.add_handler(CommandHandler("speed", set_speed))
     application.add_handler(CommandHandler("info", show_info))
+    application.add_handler(CommandHandler("add_cost", add_cost))
 
     audio_handler = MessageHandler(filters.VOICE | filters.AUDIO | filters.VIDEO, process_audio_message_no_gpt)
     application.add_handler(audio_handler)
