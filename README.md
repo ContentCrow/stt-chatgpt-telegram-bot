@@ -11,7 +11,7 @@ SST GPT-3.5 Telegram Bot is a simple and easy-to-use conversational AI-assistant
 
 ## Docker (Windows)
 To run this bot directly with docker, simple run the following commands: (The TELEGRAM_BOT_WL_ID environment variable is optional.)
-```
+```bash
 docker build -t contentcrow/stt-chatgpt-telegram-bot https://github.com/ContentCrow/stt-chatgpt-telegram-bot.git
 
 docker run --name your_bot_name --restart unless-stopped -e TELEGRAM_BOT_KEY=your_telegram_token -e OPENAI_API_KEY=your_openai_token -e TELEGRAM_BOT_PW=your_bot_pw -e TELEGRAM_BOT_WL_ID=telegram_user_id contentcrow/stt-chatgpt-telegram-bot
@@ -21,7 +21,7 @@ docker run --name your_bot_name --restart unless-stopped -e TELEGRAM_BOT_KEY=you
 ## Requirements
 * Python 3.x installed
 * Install necessary Python packages using the requirements.txt file.
-  ```
+  ```bash
   pip install -r requirements.txt
   ```
 * Install FFmpeg
@@ -48,24 +48,24 @@ scoop install ffmpeg
 * `TELEGRAM_BOT_KEY`: Your Telegram Bot Token which can be obtained from [BotFather](https://core.telegram.org/bots#6-botfather). (mandatory)
 * `OPENAI_API_KEY`: Your OpenAI API Key, which can be found on the [OpenAI Dashboard](https://beta.openai.com/signup). (mandatory)
 * `TELEGRAM_BOT_PW`: An access password of your choice for the Telegram Bot. (mandatory)
-* `TELEGRAM_BOT_WL_ID`: Your Telegram User ID which will be whitelisted by default. (optional)
+* `TELEGRAM_BOT_WL_ID`: Telegram User ID which will be whitelisted by default. (optional)
 
 ## Usage
 1. Set your environment variables:
-   
+
    For Linux:
    ```bash
    export TELEGRAM_BOT_KEY=your_telegram_token
    export OPENAI_API_KEY=your_openai_token
    export TELEGRAM_BOT_PW=your_bot_pw
-   export TELEGRAM_BOT_WL_ID=your_telegam_user_id
+   export TELEGRAM_BOT_WL_ID=telegram_user_id
    ```
    For Windows:
    ```bash
    setx TELEGRAM_BOT_KEY “your_telegram_token”
    setx OPENAI_API_KEY “your_openai_token”
    setx TELEGRAM_BOT_PW “your_bot_pw”
-   setx TELEGRAM_BOT_WL_ID “telegam_user_id”
+   setx TELEGRAM_BOT_WL_ID “telegram_user_id”
    ```
 
 2. Run the script:
@@ -73,11 +73,12 @@ scoop install ffmpeg
    python gpt_telegram_bot.py
    ```
 
-3. Open the Telegram app and interact with the bot using text messages or voice inputs.
+3. Open the Telegram app and interact with the bot using text messages, voice inputs or the following commands.
    ```bash
    /password your_bot_pw # Gain access to the bot
-   /language en # Set the speech language used for the transcription
+   /language en # Set the speech language used for the transcription (e.g. en, de, fr, es, it...)
    /speed 1.2 # Set the audio speed used for transcription (0.8x-1.8x)
-   /info # Display important info (usage cost, language, speed)
+   /add_cost 0.15 # Manually add cost to this months usage cost (in USD)
+   /info # Display important info (monthly usage cost, language, speed)
    /reset # Reset the ChatGPT context history
    ```
