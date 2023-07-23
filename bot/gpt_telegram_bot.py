@@ -53,7 +53,7 @@ _user_id = None
 # Init the local settings file
 settings = usersettings.Settings("contentcrow.sttchatgpttelegrambot")
 settings.add_setting("language", str, default="auto")
-settings.add_setting("speed", float, default=1.0)
+settings.add_setting("speed", float, default=1.2)
 settings.add_setting("whitelisted_ids", list, default=[])
 settings.add_setting("blacklisted_ids", list, default=[])
 settings.add_setting("usage_cost", list, default=[0.0])
