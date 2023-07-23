@@ -59,7 +59,7 @@ settings.add_setting("blacklisted_ids", list, default=[])
 settings.add_setting("usage_cost", list, default=[0.0])
 settings.add_setting("index_zero_date", default=get_current_month())
 settings.load_settings()
-if ("TELEGRAM_BOT_WL_ID" in os.environ) and not (os.environ["TELEGRAM_BOT_WL_ID"] in settings.whitelisted_ids):
+if ("TELEGRAM_BOT_WL_ID" in os.environ) and not (int(os.environ["TELEGRAM_BOT_WL_ID"]) in settings.whitelisted_ids):
     settings.whitelisted_ids.append(int(os.environ["TELEGRAM_BOT_WL_ID"]))
     settings.save_settings()
 
@@ -277,7 +277,7 @@ async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None
     elif user_id in settings.whitelisted_ids:
         pass
     elif count < MAX_PW_ENTER_ATTEMPTS and "/password " in text and get_command_argument("/password ", text) == telegram_bot_password:
-        settings.whitelisted_ids.append(user_id)
+        settings.whitelisted_ids.append(int(user_id))
         settings.save_settings()
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text=f"Welcome {user_firstname}! Your user_id {user_id} has been whitelisted."
@@ -356,5 +356,5 @@ if __name__ == "__main__":
 
     application.add_error_handler(error_handler)
 
-    logger.critical("The bot has been (re)started.")
+    logger.critical(f"The bot has been (re)started! Settings: {settings}")
     application.run_polling()
