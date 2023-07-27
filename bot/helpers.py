@@ -11,6 +11,8 @@ from telegram.ext import (
     ContextTypes,
 )
 
+_file = None
+
 # API model types
 class ModelType(Enum):
     GPT4 = 'gpt-4'
@@ -46,23 +48,57 @@ async def download_media(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
     f = await new_file.download_to_drive(file_id + file_extension)
     return [f, file_name]
 
-def convert_and_speedup_audio(audio_file: object, speed: float) -> object:
+def convert_and_speedup_audio(audio_file: object, speed: float = 1.2, segment_time: int = 720) -> object:
     file_split = audio_file.name.split('.')
     file_name = file_split[0]
+    file_name_ = file_name + "_"
+    global _file
+    _file = file_name
     #file_extension = file_split[1]
     (
         ffmpeg
         .input(audio_file.name)
         .filter("atempo", speed)
-        .output(file_name + ".mp3")
+        .output(file_name + "_%03d.mp3", f="segment", segment_time=segment_time)
         .global_args("-c:a", "libmp3lame")
         .global_args("-q:a", "0")
         .global_args("-loglevel", "error")
         .global_args("-nostats")
         .run()
     )
-    os.remove(audio_file)
-    return file_name + ".mp3";
+    #os.remove(audio_file)
+    filenames = []
+    for filename in os.listdir("."):
+        if os.path.isfile(os.path.join(".", filename)) and file_name_ in filename:
+            filenames.append(filename)
+    return filenames;
+
+def cleanup_files() -> None:
+    global _file
+    if _file == None:
+        return
+    for filename in os.listdir("."):
+        if os.path.isfile(os.path.join(".", filename)) and _file in filename and not ".py" in filename:
+            os.remove(filename)
+    _file = None
+
+def split_text_fit_message(input_text: str, split_at: int = 4095) -> []:
+    if input_text == None:
+        return []
+    length = len(input_text)
+    segments = []
+    start_index = 0
+    while start_index < length:
+        end_index = input_text.rfind(".", start_index, start_index + 4095)
+        print(start_index, end_index)
+        if start_index + 4095 >= length:
+            segments.append(input_text[start_index:])
+            break
+        elif end_index == -1:
+            end_index = start_index + 4095
+        segments.append(input_text[start_index:end_index+1])
+        start_index = end_index + 1
+    return segments
 
 def get_file_extension(mime_type: str) -> str:
     return "." + mime_type.split('/')[1]

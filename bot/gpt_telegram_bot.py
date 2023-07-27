@@ -16,7 +16,7 @@ from telegram.ext import (
     ApplicationHandlerStop,
 )
 from telegram.error import TelegramError
-from helpers import download_media, convert_and_speedup_audio, validate_entered_language, validate_entered_speed, get_command_argument, get_first_last_day_of_this_month, get_final_file_size, calculateCostbyTokens, calculateCostByDuration, ModelType, get_current_month, get_time_difference_in_months, validate_entered_cost
+from helpers import download_media, convert_and_speedup_audio, validate_entered_language, validate_entered_speed, get_command_argument, get_first_last_day_of_this_month, get_final_file_size, calculateCostbyTokens, calculateCostByDuration, ModelType, get_current_month, get_time_difference_in_months, validate_entered_cost, cleanup_files, split_text_fit_message
 
 # enable/disable full traceback logging for the logfile
 LOG_TRACEBACK = False
@@ -49,6 +49,7 @@ openai.api_key = os.environ["OPENAI_API_KEY"]
 
 messages_list = []
 _user_id = None
+_thinking = None
 
 # Init the local settings file
 settings = usersettings.Settings("contentcrow.sttchatgpttelegrambot")
@@ -100,52 +101,62 @@ def log_traceback() -> None:
         traceback_str = traceback.format_exc()
         logger.error(traceback_str)
 
-async def process_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def display_loading_message(update: object, context: ContextTypes.DEFAULT_TYPE) -> object:
     thinking = await context.bot.send_message(
         chat_id=update.effective_chat.id, text="🤔💬"
     )
-    append_history(update.message.text, "user")
+    global _thinking
+    _thinking = thinking
+    return thinking
 
-    response = generate_gpt_response()
-
-    append_history(response, "assistant")
+async def clear_loading_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global _thinking
+    if _thinking == None:
+        return
     await context.bot.deleteMessage(
-        message_id=thinking.message_id, chat_id=update.message.chat_id
+        message_id=_thinking.message_id, chat_id=update.message.chat_id
     )
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
+    _thinking = None
+
+async def process_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    thinking = await display_loading_message(update, context)
+
+    append_history(update.message.text, "user")
+    response = generate_gpt_response()
+    append_history(response, "assistant")
+
+    await clear_loading_message(update, context)
+
+    text_segments = split_text_fit_message(response)
+    for segment in text_segments:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=segment)
     logger.critical(f"User: {_user_id}. Proccessed text message with ChatGPT.")
 
 
-async def process_audio_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    transcript = await get_audio_transcription(update, context)
-    append_history(transcript, "user")
-
-    response = generate_gpt_response()
-
-    append_history(response, "assistant")
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
-    logger.critical(f"User: {_user_id}. Proccessed audio message with ChatGPT.")
+#async def process_audio_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#    transcript = await get_audio_transcription(update, context)
+#    append_history(transcript, "user")
+#
+#    response = generate_gpt_response()
+#    append_history(response, "assistant")
+#
+#    await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
+#    logger.critical(f"User: {_user_id}. Proccessed audio message with ChatGPT.")
 
 
 async def process_audio_message_no_gpt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    thinking = await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="🤔💬"
-    )
+    thinking = await display_loading_message(update, context)
 
     transcript_arr = await get_audio_transcription(update, context)
 
-    await context.bot.deleteMessage(
-        message_id=thinking.message_id, chat_id=update.message.chat_id
-    )
-    # aborted or not
-    if transcript_arr[2]:
-        chat_message = f"Transcription aborted! The converted audio file size ({transcript_arr[0]}MB) exceeds the Whisper API size limit of {WHISPER_API_FILE_SIZE_LIMIT}MB. Please split your input file accordingly."
-        logger_message = f"User: {_user_id}. Transcription for '{transcript_arr[1]}' via Whisper API aborted. The converted file size ({transcript_arr[0]}MB) exceeds {WHISPER_API_FILE_SIZE_LIMIT}MB."
-    else:
-        chat_message = transcript_arr[0]
-        logger_message = f"User: {_user_id}. Transcription for '{transcript_arr[1]}' via Whisper API finished."
+    logger_message = f"User: {_user_id}. Transcription for '{transcript_arr[1]}' via Whisper API finished."
+    text_segments = split_text_fit_message(transcript_arr[0])
 
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=chat_message)
+    await clear_loading_message(update, context)
+
+    for segment in text_segments:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=segment)
+    logger.critical(logger_message)
 
 
 def generate_gpt_response() -> str:
@@ -159,35 +170,36 @@ def generate_gpt_response() -> str:
 async def get_audio_transcription(update: object, context: ContextTypes.DEFAULT_TYPE) -> []:
     file_arr = await download_media(update, context)
     downloaded_file = file_arr[0]
-    converted_file_name = convert_and_speedup_audio(downloaded_file, settings.speed)
+    converted_file_names = convert_and_speedup_audio(downloaded_file, settings.speed, 720)
+    transcript = ""
     has_error = False
-    with open(converted_file_name, "rb") as f:
-        file_size = get_final_file_size(f)
-        if file_size > WHISPER_API_FILE_SIZE_LIMIT:
-            has_error = True
-            transcript = file_size
-        else:
-            if settings.language == "auto":
-                transcript_obj = openai.Audio.transcribe(
-                    file = f,
-                    model = ModelType.WHISPER.value,
-                    response_format="verbose_json"
-                    #response_format="text", # verbose_json, srt, vtt, text
-                )
-            else:
-                transcript_obj = openai.Audio.transcribe(
-                    file = f,
-                    model = ModelType.WHISPER.value,
-                    response_format="verbose_json",
-                    language=settings.language
-                )
-            duration = transcript_obj["duration"]
-            calculated_cost = calculateCostByDuration(duration)
-            total_usage_cost = add_to_usage_cost(calculated_cost)
-            transcript = transcript_obj["text"]
-    os.remove(converted_file_name)
+    for file_name in converted_file_names:
+        transcript += (await get_partial_transcription(file_name) + " ")
+    cleanup_files()
     return [transcript, file_arr[1], has_error]
 
+async def get_partial_transcription(file_name) -> str:
+    transcript = ""
+    with open(file_name, "rb") as f:
+        if settings.language == "auto":
+            transcript_obj = openai.Audio.transcribe(
+                file = f,
+                model = ModelType.WHISPER.value,
+                response_format="verbose_json"
+                #response_format="text", # verbose_json, srt, vtt, text
+            )
+        else:
+            transcript_obj = openai.Audio.transcribe(
+                file = f,
+                model = ModelType.WHISPER.value,
+                response_format="verbose_json",
+                language=settings.language
+            )
+        duration = transcript_obj["duration"]
+        calculated_cost = calculateCostByDuration(duration)
+        total_usage_cost = add_to_usage_cost(calculated_cost)
+        transcript = transcript_obj["text"]
+    return transcript
 
 async def reset_history(update: object, context: ContextTypes.DEFAULT_TYPE) -> []:
     clear_history()
@@ -328,10 +340,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         # Handle other unexpected errors
         logger.critical(f"Unexpected Error for user ({_user_id}): {e_string}")
         log_traceback()
-        if "quota" in e_string: # quota error
+        await clear_loading_message(update, context)
+        if "quota" in e_string or "Message is too long" in e_string: # quota error and message too long error
             await context.bot.send_message(
-                chat_id=update.effective_chat.id, text=f"Error: {e_string}"
+                chat_id=update.effective_chat.id, text=f"⚠️ Error: {e_string} ⚠️"
             )
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id, text=f"⚠️ Unknown Error: Please contact the bot administrator. ⚠️"
+            )
+    finally: # always clean up any left behind files
+        cleanup_files()
 
 
 if __name__ == "__main__":
