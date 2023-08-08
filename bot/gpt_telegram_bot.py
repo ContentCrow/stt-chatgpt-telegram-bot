@@ -279,7 +279,6 @@ async def chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE) -> None
         user_id = update.edited_message.from_user.id
         user_firstname = update.edited_message.from_user.first_name
         text = update.edited_message.text
-    #print(user_id, text, '/password ' in text, count, update.effective_chat.id)
 
     global _user_id
     _user_id = user_id

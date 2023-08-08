@@ -90,7 +90,6 @@ def split_text_fit_message(input_text: str, split_at: int = 4095) -> []:
     start_index = 0
     while start_index < length:
         end_index = input_text.rfind(".", start_index, start_index + 4095)
-        print(start_index, end_index)
         if start_index + 4095 >= length:
             segments.append(input_text[start_index:])
             break
@@ -108,7 +107,7 @@ def get_final_file_size(f: object) -> int:
     return math.ceil(file_size_bytes / (1024 * 1024))
 
 def get_command_argument(command: str, text: str) -> str:
-    if len(text) > (len(command) + 1):
+    if len(text) >= (len(command) + 1):
         return text.split(command)[1]
     else:
         return ""
